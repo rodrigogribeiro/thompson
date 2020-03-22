@@ -1,6 +1,0 @@
--R . thompson
-
-Tactics/Crush.v
-Tactics/LibTactics.v
-Tactics/Tactics.v
-Utils/StringUtils.v
