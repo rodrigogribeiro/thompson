@@ -11,50 +11,45 @@ almost another way to write regular expressions.
  *)
 
 
-Require Import
-        Ascii
-        String
-        Arith_base
-        List
-        ListSet
-        Tactics.Tactics
-        Utils.StringUtils.
+From Coq Require Import
+                 Ascii
+                 String 
+                 MSets
+                 Arith.
 
-Import ListNotations.
+Require Import
+        Tactics.Tactics.
+
+Open Scope string_scope.
 
 (**
 
 First of all, a state is just a natural number and
-a set of states is just a (list-based) set of state.
+a set of states is just a set of state.
  *)
 
 Definition state := nat.
 
-Definition states := set state.
+Module NSet := Make Nat_as_OT.
+Module NSetDec := MSetDecide.WDecide NSet.
+
+Definition states := NSet.t.
 
 (** Here I provide some auxiliar names for the
     functions on list set library. Note that
     basically I just specify that we should use
     the decidable equality function for nat. *)
 
-Definition union := set_union eq_nat_dec.
-Definition empty := @empty_set nat.
-Definition inter := set_inter eq_nat_dec.
-Definition is_empty (s : states) :=
-  match s with
-  | [] => true
-  | _  => false
-  end.
+Definition union := NSet.union.
+Definition empty := NSet.empty.
+Definition inter := NSet.inter.
+Definition is_empty := NSet.is_empty.
 Definition singleton (s : state) : states :=
-  s :: empty.
+  NSet.singleton s.
 
 Definition unions := fold_right (fun x ac => union x ac) empty.
+Definition to_list := NSet.elements.
 
-Lemma is_empty_correct : forall s, is_empty s = true <-> s = empty.
-Proof.
-  induction s ; crush.
-  inverts* H1.
-Qed.
 
 (**
    We represent NFA by a record formed by its set of starting states,
@@ -80,7 +75,7 @@ Record nfa : Type
 Fixpoint run (n : nfa)(ss : states)(xs : string) : bool :=
   match xs with
   | EmptyString  => negb (is_empty (inter ss (final n)))
-  | String x xs' => let as' := unions (map (transition n x) ss)
+  | String x xs' => let as' := unions (map (transition n x) (to_list ss))
                    in run n as' xs'
   end.
 
@@ -131,12 +126,14 @@ Qed.
 Definition one : nfa :=
   NFA 1 (singleton 0) (fun _ _ => empty) (singleton 0).
 
-Lemma matches_one_correct : forall s, matches one s = true <-> s = EmptyString.
+Lemma matches_one_correct : forall s, matches one s = true <-> s = "".
 Proof.
   unfold matches ; induction s ; split ; intros H ; try congruence ; auto.
   -
     simpl in *.
     destruct s.
+    assert (NSet.Equal (union empty empty) empty) by NSetDec.fsetdec.
+    setoid_rewrite H0 in H.
     rewrite run_empty in H ; crush.
     simpl in *.
     rewrite run_empty in H ; crush.
@@ -203,7 +200,8 @@ Qed.
 
 Definition ltb (n m : nat) : bool := leb (S n) m.
 
-(** Function for constructing the union of two nfa's.
+(**
+    Function for constructing the union of two nfa's.
     For now, I have no clue to prove the correctness... :P
  *)
 
@@ -225,10 +223,8 @@ Lemma sum_left_sound
 Proof.
   unfold matches ; induction s ; intros m m' H.
   -
-    destruct m ; destruct m' ; crush.
-    destruct (is_empty
-                (inter (union start0 (shift size0 start1))
-                       (union final0 (shift size0 final1)))) eqn : Hemp.
+    simpl in *.
+
 Admitted.
 
 Lemma sum_right_sound
