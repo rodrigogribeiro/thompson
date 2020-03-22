@@ -1,3 +1,17 @@
+(**
+
+Thompson construction for RE.
+=============================
+
+
+Here is my first attempt to formalize a construction of
+the Thompson NFA construction for regular expressions.
+My idea is to build a simple interface for assembling
+NFAs from smaller components: as you will see, it is
+almost another way to write regular expressions.
+ *)
+
+
 Require Import
         Ascii
         String
@@ -9,13 +23,20 @@ Require Import
 
 Import ListNotations.
 
-(** definition of nat based set *)
+(**
+
+First of all, a state is just a natural number and
+a set of states is just a (list-based) set of state.
+ *)
 
 Definition state := nat.
 
 Definition states := set state.
 
-(** definition of a simple NFA *)
+(** Here I provide some auxiliar names for the
+    functions on list set library. Note that
+    basically I just specify that we should use
+    the decidable equality function for nat. *)
 
 Definition union := set_union eq_nat_dec.
 Definition empty := @empty_set nat.
@@ -30,13 +51,26 @@ Definition singleton (s : state) : states :=
 
 Definition unions := fold_right (fun x ac => union x ac) empty. 
 
+(**
+   We represent NFA by a record formed by its set of starting states,
+   its transition function, the set of final states and a natural number
+   constant that is used to express the NFA number of states.
+ *)
+
 Record nfa : Type
   := NFA {
          size  : nat ;
          start : states ;
          transition : ascii -> state -> states ;
          final : states 
-     }.
+       }.
+
+(** Matching an input string is just a matter of recursivelly tranverse it
+    applying NFA transitions. Note that, at each step, we modify the _start_
+    of the NFA to denote the current _activated_ states in the NFA.
+    A string is only accepted if the intersection between the current active set and
+    the final states is not empty.
+ *)
 
 Fixpoint matches (n : nfa)(xs : string) : bool :=
   match xs with
@@ -45,6 +79,8 @@ Fixpoint matches (n : nfa)(xs : string) : bool :=
                 in matches (NFA (size n) as' (transition n) (final n)) xs'
   end. 
 
+(** A basic result which will be useful latter: if we have an nfa which has
+    an empty starting state set, then it accepts no string *)
 
 Lemma matches_start_empty :
   forall (m : nfa), start m = empty -> forall s, matches m s = false.
@@ -61,6 +97,8 @@ Proof.
     auto.
 Qed.
 
+(** sat buils an nfa for a predicate over characters *)
+
 Definition sat (p : ascii -> bool) : nfa :=
   let f x y :=
       match y with
@@ -69,6 +107,9 @@ Definition sat (p : ascii -> bool) : nfa :=
       end
   in NFA 2 (singleton 0) f (singleton 1).
 
+(** simple NFA which accepts the empty set of strings
+    and its correctness proof.*)
+
 Definition zero : nfa :=
   NFA 0 empty (fun _ _ => empty) empty.
 
@@ -76,6 +117,8 @@ Lemma matches_zero_correct : forall s, matches zero s = false.
 Proof.
   induction s ; cbn in * ; auto.
 Qed.
+
+(** NFA for accepting the empty string and is correctness proof.*)
 
 Definition one : nfa :=
   NFA 1 (singleton 0) (fun _ _ => empty) (singleton 0).
@@ -97,6 +140,8 @@ Proof.
       specialize (H (eq_refl true)).
       congruence.
 Qed.
+
+(** single character NFA and its correctness proof *)
 
 Definition chr (c : ascii) : nfa :=
   sat (fun c' => if ascii_dec c c' then true else false).
@@ -152,10 +197,24 @@ Proof.
     destruct (ascii_dec c c) ; crush.
 Qed.
 
+(**
+The shift function is used to ensure the disjointness of the state-sets
+of two NFA. The idea is to _shift_ the states of the second nfa by the
+size of the first.
+ *)
+
+
 Definition shift (n : nat)(s : states) :=
-  map (fun x => x + n) s. 
+  map (fun x => x + n) s.
+
+(** simple boolean test for less-than relation on naturals. *)
 
 Definition ltb (n m : nat) : bool := leb (S n) m.
+
+(** Function for constructing the union of two nfa's.
+    For now, I have no clue to prove the correctness... :P
+ *)
+
 
 Definition sum (m m' : nfa) : nfa :=
   match m , m' with
@@ -173,6 +232,9 @@ Definition sum (m m' : nfa) : nfa :=
 Lemma sum_left_sound
   : forall s m m', matches m s = true -> matches (sum m m') s = true.
 Proof.
+  induction s ; intros m m' H.
+  -
+    destruct m ; destruct m' ; crush.
 Admitted.
 
 Lemma sum_right_sound
@@ -184,6 +246,10 @@ Lemma sum_complete
   : forall s m m', matches (sum m m') s = true -> matches m s = true \/ matches m' s = true.
 Proof.
 Admitted.
+
+
+(** Construction for the concatenation of two nfa's. Need to figure out how
+    to do the correctness proofs. *)
 
 
 Definition prod (m m' : nfa) : nfa :=
@@ -218,6 +284,7 @@ Lemma prod_complete
 Proof.
 Admitted.
 
+(** star construction for nfa's. No correctness proofs. *)
 
 Definition star (m : nfa) : nfa :=
   match m with
@@ -241,7 +308,9 @@ Lemma star_cat_sound
 Proof.
 Admitted.
 
-(** regular expression syntax *)
+(**
+   Borin regular expression stuff: syntax and semantics.
+ *)
 
 Inductive regex : Set :=
 | Empty : regex
@@ -250,8 +319,6 @@ Inductive regex : Set :=
 | Cat : regex -> regex -> regex
 | Choice : regex -> regex -> regex
 | Star : regex -> regex.
-
-(** semantics *)
 
 Inductive in_regex : string -> regex -> Prop :=
 | InEpsilon
@@ -277,6 +344,10 @@ Inductive in_regex : string -> regex -> Prop :=
 
 Hint Constructors in_regex : core.
 
+(** Simple computation to translate a RE into a
+    NFA using thompson construction *)
+
+
 Fixpoint thompson (e : regex) : nfa :=
   match e with
   | Empty => zero
@@ -286,6 +357,9 @@ Fixpoint thompson (e : regex) : nfa :=
   | Choice e e' => sum (thompson e) (thompson e')
   | Star e => star (thompson e)
   end.
+
+(** Correctness of the construction. Here I'm assuming that
+    the proofs will by strong induction on string size. *)
 
 Definition thompson_sound_type :=
   fun e s => matches (thompson e)s = true -> in_regex s e.
