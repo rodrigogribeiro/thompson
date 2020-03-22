@@ -1,5 +1,4 @@
 (**
-
 Thompson construction for RE.
 =============================
 
@@ -49,7 +48,13 @@ Definition is_empty (s : states) :=
 Definition singleton (s : state) : states :=
   s :: empty.
 
-Definition unions := fold_right (fun x ac => union x ac) empty. 
+Definition unions := fold_right (fun x ac => union x ac) empty.
+
+Lemma is_empty_correct : forall s, is_empty s = true <-> s = empty.
+Proof.
+  induction s ; crush.
+  inverts* H1.
+Qed.
 
 (**
    We represent NFA by a record formed by its set of starting states,
@@ -72,29 +77,32 @@ Record nfa : Type
     the final states is not empty.
  *)
 
-Fixpoint matches (n : nfa)(xs : string) : bool :=
+Fixpoint run (n : nfa)(ss : states)(xs : string) : bool :=
   match xs with
-  | EmptyString  => negb (is_empty (inter (start n) (final n)))
-  | String x xs' => let as' := unions (map (transition n x) (start n))
-                in matches (NFA (size n) as' (transition n) (final n)) xs'
-  end. 
+  | EmptyString  => negb (is_empty (inter ss (final n)))
+  | String x xs' => let as' := unions (map (transition n x) ss)
+                   in run n as' xs'
+  end.
+
+Definition matches (n : nfa)(xs : string) : bool := run n (start n) xs.
 
 (** A basic result which will be useful latter: if we have an nfa which has
     an empty starting state set, then it accepts no string *)
+
+Remark run_empty
+  : forall s n, run n empty s = false.
+Proof.
+  induction s ; crush.
+Qed.
 
 Lemma matches_start_empty :
   forall (m : nfa), start m = empty -> forall s, matches m s = false.
 Proof.
   intros m Hm.
-  induction s.
-  -
-    simpl in * ; crush.
-  -
-    destruct m.
-    simpl in *.
-    substs.
-    simpl.
-    auto.
+  unfold matches.
+  rewrite Hm.
+  intros s.
+  apply run_empty.
 Qed.
 
 (** sat buils an nfa for a predicate over characters *)
@@ -125,20 +133,13 @@ Definition one : nfa :=
 
 Lemma matches_one_correct : forall s, matches one s = true <-> s = EmptyString.
 Proof.
-  induction s ; split ; intros H ; try congruence ; auto.
+  unfold matches ; induction s ; split ; intros H ; try congruence ; auto.
   -
     simpl in *.
     destruct s.
-    +
-      simpl in *.
-      congruence.
-    +
-      simpl in *.
-      rewrite H in IHs.
-      clear H.
-      destruct IHs.
-      specialize (H (eq_refl true)).
-      congruence.
+    rewrite run_empty in H ; crush.
+    simpl in *.
+    rewrite run_empty in H ; crush.
 Qed.
 
 (** single character NFA and its correctness proof *)
@@ -155,7 +156,7 @@ Ltac ascii_matcher :=
 Lemma matches_chr_correct
   : forall s c, matches (chr c) s = true <-> s = String c EmptyString.
 Proof.
-  induction s ; crush ; try ascii_matcher ; crush.
+  unfold matches ; induction s ; crush ; try ascii_matcher ; crush.
   -
     lets J : IHs a ; clear IHs.
     destruct s.
@@ -164,35 +165,9 @@ Proof.
     +
       fequals.
       simpl in *.
-      assert (matches
-        {|
-        size := 2;
-        start := empty;
-        transition := fun (x : ascii) (y : nat) =>
-                      match y with
-                      | 0 =>
-                          if if ascii_dec a x then true else false
-                          then singleton 1
-                          else empty
-                      | S _ => empty
-                      end;
-        final := singleton 1 |} s = false).
-      apply matches_start_empty ; auto. crush.
+      rewrite run_empty in H ; crush.
   -
-      assert (matches
-        {|
-        size := 2;
-        start := empty;
-        transition := fun (x : ascii) (y : nat) =>
-                      match y with
-                      | 0 =>
-                          if if ascii_dec c x then true else false
-                          then singleton 1
-                          else empty
-                      | S _ => empty
-                      end;
-        final := singleton 1 |} s = false).
-      apply matches_start_empty ; auto. crush.
+    rewrite run_empty in H ; crush.
   -
     destruct (ascii_dec c c) ; crush.
 Qed.
@@ -203,9 +178,26 @@ of two NFA. The idea is to _shift_ the states of the second nfa by the
 size of the first.
  *)
 
-
 Definition shift (n : nat)(s : states) :=
   map (fun x => x + n) s.
+
+Lemma shift_In
+  : forall s x, In x s -> forall n, In (x + n) (shift n s).
+Proof.
+  induction s ; crush.
+Qed.
+
+Lemma shift_disjoint
+  : forall n, n > 0 -> forall s x, In x (shift n s) -> In (x - n) s.
+Proof.
+  intros n Hn. induction s ; intros x Hin ; crush.
+Qed.
+
+Lemma shift_id
+  : forall s, shift 0 s = s.
+Proof.
+  induction s ; crush ; fequals*.
+Qed.
 
 (** simple boolean test for less-than relation on naturals. *)
 
@@ -214,7 +206,6 @@ Definition ltb (n m : nat) : bool := leb (S n) m.
 (** Function for constructing the union of two nfa's.
     For now, I have no clue to prove the correctness... :P
  *)
-
 
 Definition sum (m m' : nfa) : nfa :=
   match m , m' with
@@ -232,9 +223,12 @@ Definition sum (m m' : nfa) : nfa :=
 Lemma sum_left_sound
   : forall s m m', matches m s = true -> matches (sum m m') s = true.
 Proof.
-  induction s ; intros m m' H.
+  unfold matches ; induction s ; intros m m' H.
   -
     destruct m ; destruct m' ; crush.
+    destruct (is_empty
+                (inter (union start0 (shift size0 start1))
+                       (union final0 (shift size0 final1)))) eqn : Hemp.
 Admitted.
 
 Lemma sum_right_sound
@@ -309,7 +303,7 @@ Proof.
 Admitted.
 
 (**
-   Borin regular expression stuff: syntax and semantics.
+   Boring regular expression stuff: syntax and semantics.
  *)
 
 Inductive regex : Set :=
