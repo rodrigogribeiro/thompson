@@ -13,12 +13,15 @@ almost another way to write regular expressions.
 
 From Coq Require Import
                  Ascii
-                 String 
-                 MSets
+                 String
+                 List
+                 ListSet
                  Arith.
 
 Require Import
         Tactics.Tactics.
+
+Import ListNotations.
 
 Open Scope string_scope.
 
@@ -30,26 +33,40 @@ a set of states is just a set of state.
 
 Definition state := nat.
 
-Module NSet := Make Nat_as_OT.
-Module NSetDec := MSetDecide.WDecide NSet.
 
-Definition states := NSet.t.
+Definition states := set state.
 
 (** Here I provide some auxiliar names for the
     functions on list set library. Note that
     basically I just specify that we should use
     the decidable equality function for nat. *)
 
-Definition union := NSet.union.
-Definition empty := NSet.empty.
-Definition inter := NSet.inter.
-Definition is_empty := NSet.is_empty.
+Definition union := set_union eq_nat_dec.
+Definition empty := @empty_set state.
+Definition inter := set_inter eq_nat_dec.
+Definition is_empty (s : states) :=
+  match s with
+  | [] => true
+  | _  => false
+  end.
 Definition singleton (s : state) : states :=
-  NSet.singleton s.
+  [ s ].
 
 Definition unions := fold_right (fun x ac => union x ac) empty.
-Definition to_list := NSet.elements.
 
+Lemma inter_comm : forall (A B : states), inter A B = inter B A.
+Proof.
+  unfold inter ; induction A ; destruct B ; crush.
+  -
+    
+Lemma inter_empty
+  : forall (A B : states), negb (is_empty (inter A B)) = true ->
+    forall (C D : states), negb (is_empty (inter (union A C) (union B D))) = true.
+Proof.
+  induction A ; destruct B ; intros H C D ; crush.
+  -
+    
+Admitted.
 
 (**
    We represent NFA by a record formed by its set of starting states,
@@ -75,7 +92,7 @@ Record nfa : Type
 Fixpoint run (n : nfa)(ss : states)(xs : string) : bool :=
   match xs with
   | EmptyString  => negb (is_empty (inter ss (final n)))
-  | String x xs' => let as' := unions (map (transition n x) (to_list ss))
+  | String x xs' => let as' := unions (map (transition n x) ss)
                    in run n as' xs'
   end.
 
@@ -132,8 +149,6 @@ Proof.
   -
     simpl in *.
     destruct s.
-    assert (NSet.Equal (union empty empty) empty) by NSetDec.fsetdec.
-    setoid_rewrite H0 in H.
     rewrite run_empty in H ; crush.
     simpl in *.
     rewrite run_empty in H ; crush.
@@ -223,8 +238,10 @@ Lemma sum_left_sound
 Proof.
   unfold matches ; induction s ; intros m m' H.
   -
+    destruct m ; destruct m' ; simpl in *.
+    eapply inter_empty in H ; eauto.
+  -
     simpl in *.
-
 Admitted.
 
 Lemma sum_right_sound
